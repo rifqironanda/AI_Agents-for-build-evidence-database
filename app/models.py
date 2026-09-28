@@ -1,10 +1,30 @@
-from typing import Optional,List
-from pydantic import BaseModel,Field
-class ResearchTask(BaseModel):
- topic:str; query:str; source_types:List[str]=Field(default_factory=list); jurisdiction:Optional[str]=None
-class Source(BaseModel):
- source_id:str; title:str; publisher:str; publication_date:Optional[str]=None; source_type:str; url:str; jurisdiction:Optional[str]=None
-class Claim(BaseModel):
- claim_id:str; source_id:str; claim_text:str; claim_type:str; topic:str; threat_type:Optional[str]=None; evidence_quote:str; page_or_section:Optional[str]=None; time_expression:Optional[str]=None; extraction_confidence:float=0.0
+from typing import Optional, List
+from pydantic import BaseModel, Field
+
+
+class Document(BaseModel):
+    document_id: str
+    filename: str
+    path: str
+    page_count: int
+    file_hash: str
+
+
+class PageText(BaseModel):
+    document_id: str
+    page_number: int
+    text: str
+
+
+class Summary(BaseModel):
+    document_id: str
+    summary: str
+    key_points: List[str] = Field(default_factory=list)
+    limitations: str = ""
+    model: str = ""
+
+
 class Validation(BaseModel):
- claim_id:str; status:str; claim_supported:bool; citation_present:bool; interpretation_risk:str; rationale:str
+    document_id: str
+    status: str = "pending"
+    notes: Optional[str] = None
