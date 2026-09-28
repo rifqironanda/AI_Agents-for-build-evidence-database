@@ -1,7 +1,8 @@
-"""Deterministic storage agent."""
-from app.db import upsert_source, save_summary
+"""Deterministic local database storage."""
+
+from app.db import save_document, save_summary
 
 
-def store(source, summary: dict) -> None:
-    upsert_source(source)
-    save_summary(source.source_id, summary)
+def store(document, summary) -> None:
+    save_document(document)
+    save_summary(summary)
