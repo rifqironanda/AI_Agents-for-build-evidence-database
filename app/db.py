@@ -6,127 +6,95 @@ DB_PATH = os.path.join("data", "evidence.db")
 
 def get_conn():
     os.makedirs("data", exist_ok=True)
-    c = sqlite3.connect(DB_PATH)
-    c.row_factory = sqlite3.Row
-    return c
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
 def init_db():
-    c = get_conn()
-    c.executescript(
+    conn = get_conn()
+    conn.executescript(
         """
-        CREATE TABLE IF NOT EXISTS sources(
-            source_id TEXT PRIMARY KEY,
-            title TEXT,
-            publisher TEXT,
-            publication_date TEXT,
-            source_type TEXT,
-            url TEXT,
-            jurisdiction TEXT
+        CREATE TABLE IF NOT EXISTS documents(
+            document_id TEXT PRIMARY KEY,
+            filename TEXT NOT NULL,
+            path TEXT NOT NULL,
+            page_count INTEGER NOT NULL,
+            file_hash TEXT NOT NULL
         );
 
-        CREATE TABLE IF NOT EXISTS claims(
-            claim_id TEXT PRIMARY KEY,
-            source_id TEXT,
-            claim_text TEXT,
-            claim_type TEXT,
-            topic TEXT,
-            threat_type TEXT,
-            evidence_quote TEXT,
-            page_or_section TEXT,
-            time_expression TEXT,
-            extraction_confidence REAL
-        );
-
-        CREATE TABLE IF NOT EXISTS validations(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            claim_id TEXT,
-            status TEXT,
-            claim_supported INTEGER,
-            citation_present INTEGER,
-            interpretation_risk TEXT,
-            rationale TEXT
+        CREATE TABLE IF NOT EXISTS page_text(
+            document_id TEXT NOT NULL,
+            page_number INTEGER NOT NULL,
+            text TEXT NOT NULL,
+            PRIMARY KEY(document_id, page_number),
+            FOREIGN KEY(document_id) REFERENCES documents(document_id)
         );
 
         CREATE TABLE IF NOT EXISTS summaries(
-            source_id TEXT PRIMARY KEY,
-            summary TEXT,
-            relevance TEXT,
-            limitations TEXT,
-            FOREIGN KEY(source_id) REFERENCES sources(source_id)
+            document_id TEXT PRIMARY KEY,
+            summary TEXT NOT NULL,
+            key_points TEXT NOT NULL,
+            limitations TEXT NOT NULL,
+            model TEXT NOT NULL,
+            FOREIGN KEY(document_id) REFERENCES documents(document_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS validations(
+            document_id TEXT PRIMARY KEY,
+            status TEXT NOT NULL DEFAULT 'pending',
+            notes TEXT,
+            FOREIGN KEY(document_id) REFERENCES documents(document_id)
         );
         """
     )
-    c.commit()
-    c.close()
+    conn.commit()
+    conn.close()
 
 
-def upsert_source(s):
-    c = get_conn()
-    c.execute(
-        "INSERT OR REPLACE INTO sources VALUES(?,?,?,?,?,?,?)",
+def save_document(document):
+    conn = get_conn()
+    conn.execute(
+        "INSERT OR REPLACE INTO documents VALUES(?,?,?,?,?)",
         (
-            s.source_id,
-            s.title,
-            s.publisher,
-            s.publication_date,
-            s.source_type,
-            s.url,
-            s.jurisdiction,
+            document.document_id,
+            document.filename,
+            document.path,
+            document.page_count,
+            document.file_hash,
         ),
     )
-    c.commit()
-    c.close()
+    conn.commit()
+    conn.close()
 
 
-def save_summary(source_id, summary):
-    c = get_conn()
-    c.execute(
-        "INSERT OR REPLACE INTO summaries(source_id,summary,relevance,limitations) VALUES(?,?,?,?)",
+def save_pages(pages):
+    conn = get_conn()
+    conn.executemany(
+        "INSERT OR REPLACE INTO page_text VALUES(?,?,?)",
+        [(p.document_id, p.page_number, p.text) for p in pages],
+    )
+    conn.commit()
+    conn.close()
+
+
+def save_summary(summary):
+    import json
+
+    conn = get_conn()
+    conn.execute(
+        "INSERT OR REPLACE INTO summaries VALUES(?,?,?,?,?)",
         (
-            source_id,
-            summary.get("summary", ""),
-            summary.get("relevance", ""),
-            summary.get("limitations", ""),
+            summary.document_id,
+            summary.summary,
+            json.dumps(summary.key_points, ensure_ascii=False),
+            summary.limitations,
+            summary.model,
         ),
     )
-    c.commit()
-    c.close()
-
-
-def insert_claim(x):
-    c = get_conn()
-    c.execute(
-        "INSERT OR REPLACE INTO claims VALUES(?,?,?,?,?,?,?,?,?,?)",
-        (
-            x.claim_id,
-            x.source_id,
-            x.claim_text,
-            x.claim_type,
-            x.topic,
-            x.threat_type,
-            x.evidence_quote,
-            x.page_or_section,
-            x.time_expression,
-            x.extraction_confidence,
-        ),
+    conn.execute(
+        "INSERT OR IGNORE INTO validations(document_id, status) VALUES(?, 'pending')",
+        (summary.document_id,),
     )
-    c.commit()
-    c.close()
-
-
-def insert_validation(v):
-    c = get_conn()
-    c.execute(
-        "INSERT INTO validations(claim_id,status,claim_supported,citation_present,interpretation_risk,rationale) VALUES(?,?,?,?,?,?)",
-        (
-            v.claim_id,
-            v.status,
-            int(v.claim_supported),
-            int(v.citation_present),
-            v.interpretation_risk,
-            v.rationale,
-        ),
-    )
-    c.commit()
-    c.close()
+    conn.commit()
+    conn.close()
