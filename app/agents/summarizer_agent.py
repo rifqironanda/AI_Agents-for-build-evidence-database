@@ -1,30 +1,55 @@
-"""Summarization agent.
+"""Local summarization agent.
 
-The LLM is optional. Without an API key the agent returns a deterministic
-metadata summary so the rest of the pipeline can still be tested locally.
+Only extracted text is sent to the local Ollama model. Nothing is sent to a
+cloud service by this module.
 """
+
+from app.config import OLLAMA_MODEL
 from app.llm import llm
+from app.models import Summary
 
 
-SYSTEM = """You summarize web-search results for a research workflow.
-Use only the information provided. Do not invent facts.
-Return JSON with exactly: summary, relevance, limitations."""
-
-
-def summarize(result: dict, query: str) -> dict:
-    prompt = (
-        f"Research query: {query}\n"
-        f"Title: {result.get('title','')}\n"
-        f"URL: {result.get('url','')}\n"
-        f"Domain: {result.get('domain','')}\n"
-        "Summarize what can be concluded from this search result metadata only."
+def _fallback(document_id: str, text: str) -> Summary:
+    sentences = [s.strip() for s in text.replace("\n", " ").split(".") if s.strip()]
+    points = [s[:400] for s in sentences[:5]]
+    return Summary(
+        document_id=document_id,
+        summary="Local LLM unavailable. Generated a deterministic extractive preview.",
+        key_points=points,
+        limitations="This is not an AI summary; Ollama was unavailable.",
+        model="fallback",
     )
 
-    if not llm.enabled:
-        return {
-            "summary": result.get("title", "Untitled") + " — search result found for the requested topic.",
-            "relevance": "Potentially relevant; document content has not been retrieved yet.",
-            "limitations": "This MVP has not fetched or verified the source document.",
-        }
 
-    return llm.json(SYSTEM, prompt)
+def summarize(document_id: str, filename: str, text: str) -> Summary:
+    text = text[:30000]
+    if not llm.available():
+        return _fallback(document_id, text)
+
+    prompt = f"""
+You are a research summarization assistant for a quantum-computing evidence
+database.
+
+Document: {filename}
+
+Summarize ONLY the supplied document text. Do not invent facts, dates,
+citations, page numbers, or conclusions. Clearly distinguish what the
+document states from your interpretation.
+
+Return valid JSON with exactly these keys:
+summary: concise paragraph
+key_points: array of 3 to 7 factual points
+limitations: limitations or missing context
+
+DOCUMENT TEXT:
+{text}
+"""
+
+    result = llm.json(prompt)
+    return Summary(
+        document_id=document_id,
+        summary=result.get("summary", ""),
+        key_points=result.get("key_points", []),
+        limitations=result.get("limitations", ""),
+        model=OLLAMA_MODEL,
+    )
